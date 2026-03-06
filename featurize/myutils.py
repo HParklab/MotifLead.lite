@@ -1,79 +1,39 @@
 import numpy as np
-from pathlib import Path
-import math
+import os
 import scipy
-import glob
 
+# 31 AA types
 AMINOACID = ["ALA","ARG","ASN","ASP","CYS","GLN","GLU","GLY","HIS","ILE",
              "LEU","LYS","MET","PHE","PRO","SER","THR","TRP","TYR","VAL"]
 
-ALL_AAS = ["UNK"] + AMINOACID
+ALL_AAS = ["UNK"] + AMINOACID + ["NA","K","CA","FE","MG","MN","ZN","CO","CU","CD"]
 
-gentype2num = { "CS": 0,"CS1": 1,"CS2": 2,"CS3": 3,"CD": 4,"CD1": 5,"CD2": 6,"CR": 7,"CT": 8,
-                "CSp": 9,"CDp": 10,"CRp": 11,"CTp": 12,"CST": 13,"CSQ": 14,
-                "HO": 15,"HN": 16,"HS": 17,
-                # Nitrogen
-                "Nam": 18,"Nam2": 19,"Nad": 20,"Nad3": 21,"Nin": 22,"Nim": 23,"Ngu1": 24,"Ngu2": 25,
-                "NG3": 26,"NG2": 27,"NG21": 28,"NG22": 29,"NG1": 30,
-                # Oxygen
-                "Ohx": 31,"Oet": 32,"Oal": 33,"Oad": 34,"Oat": 35,"Ofu": 36,"Ont": 37,"OG2": 38,"OG3": 39,"OG31": 40,
-                # S/P
-                "Sth": 41,"Ssl": 42,"SR": 43,"SG2": 44,"SG3": 45,"SG5": 46,"PG3": 47,"PG5": 48,
-                # Halogens
-                "Br": 49,"I": 50,"F": 51,"Cl": 52,"BrR": 53,"IR": 54,"FR": 55,"ClR": 56,
-                # Metals
-                "Ca2p": 57,"Mg2p": 58,"Mn": 59,"Fe2p": 60,"Fe3p": 60,"Zn2p": 61,"Co2p": 62,"Cu2p": 63,"Cd": 64,
-}
+# 41 atomtypes
+atype2num = { "Null": 0,
+              "CNH2": 1, "COO": 1,"CH0": 2,"CH1": 3,"CH2": 4,"CH3": 5,"aroC": 6,
+              "Ntrp": 7, "Nhis": 8, "NtrR": 9, "NH2O": 10, "Nlys": 11, "Narg": 12, "Npro": 13,
+              "OH" : 15, "ONH2": 16, "OOC": 17,
+              "S" : 19, "SH1": 20,
+              "Nbb":10, "CAbb":3, "CObb":1, "OCbb":1,
+              "Hpol":23, "HS":24, "Hapo":24, "Haro":24, "HNbb":23, "H":23,
+              
+              #SYBYL type from here
+              "C.3": 5, "C.2" : 4, "C.1": 3, "C.ar": 6, "C.cat": 2,
+              "N.3": 11, "N.2": 10, "N.1":14, "N.ar":7, "N.am":10, "N.pl3":13,
+              "O.3": 15, "O.2": 16, "O.co2": 17, "O.ar":18,
+              "S.3": 20, "S.2": 19, "S.O": 21, "S.O2": 22,
+              "P.3": 25,
+              "I": 26, "F": 27, "Cl": 28, "Br":29, "B":30,
+              # Metals
+              "Na":31,
+              "K": 32,
+              "Ca": 33, "Ca2p": 33,
+              "Fe": 34, "Fe2p": 34,"Fe3p": 34,
+              "Mg": 35, "Mg2p": 35,"Mn": 36,
+              "Zn": 37, "Zn2p": 37,
+              "Co2p": 38,"Cu2p": 39,"Cd": 40}
 
-def fa2gentype(fats):
-    """
-    Mapping atypes to "gentype2num"
-
-    Parameters:
-        fats (iterable): atypes list
-    """
-    gts = {
-        "Nbb": "Nad",
-        "Npro": "Nad3",
-        "NH2O": "Nad",
-        "Ntrp": "Nin",
-        "Nhis": "Nim",
-        "NtrR": "Ngu2",
-        "Narg": "Ngu1",
-        "Nlys": "Nam",
-        "CAbb": "CS1",
-        "CObb": "CDp",
-        "CH1": "CS1",
-        "CH2": "CS2",
-        "CH3": "CS3",
-        "COO": "CDp",
-        "CH0": "CR",
-        "aroC": "CR",
-        "CNH2": "CDp",
-        "OCbb": "Oad",
-        "OOC": "Oat",
-        "OH": "Ohx",
-        "ONH2": "Oad",
-        "S": "Ssl",
-        "SH1": "Sth",
-        "HNbb": "HN",
-        "HS": "HS",
-        "Hpol": "HO",
-        "Phos": "PG5",
-        "Oet2": "OG3",
-        "Oet3": "OG3",  # Nucleic acids
-    }
-
-    gents = []
-    # if element not in gentype2num, then mapping to gentype2num using gts
-    for at in fats:
-        if at in gentype2num:
-            gents.append(at)
-        else:
-            gents.append(gts[at])
-    return gents
-
-def get_AAtype_properties(ignore_hisH=True, extrapath="", extrainfo={}):
+def get_AAtype_properties(ignore_hisH=True):
     """
     Get properties of atypes
 
@@ -96,7 +56,7 @@ def get_AAtype_properties(ignore_hisH=True, extrapath="", extrainfo={}):
         iaa += 1
         p = defaultparams(aa)
         atms, q, atypes, bnds, repsatm, _ = read_params(p)
-        atypes_aa[iaa] = fa2gentype([atypes[atm] for atm in atms])
+        atypes_aa[iaa] = [find_atype(atypes[atm]) for atm in atms]
         qs_aa[iaa] = q
         atms_aa[iaa] = atms
         bnds_aa[iaa] = bnds
@@ -105,27 +65,9 @@ def get_AAtype_properties(ignore_hisH=True, extrapath="", extrainfo={}):
         else:
             repsatm_aa[iaa] = repsatm
 
-    if extrapath != "":
-        params = glob.glob(extrapath + "/*params")
-        for p in params:
-            aaname = p.split("/")[-1].replace(".params", "")
-            args = read_params(p, aaname=aaname)
-            if not args:
-                print("Failed to read extra params %s, ignore." % p)
-                continue
-            else:
-                # print("Read %s for the extra res params for %s"%(p,aaname))
-                pass
-            atms, q, atypes, bnds, repsatm, nchi = args
-            atypes = [atypes[atm] for atm in atms]  # same atypes
-            extrainfo[aaname] = (q, atypes, atms, bnds, repsatm)
-    if extrainfo != {}:
-        print("Extra residues read from %s: " % extrapath, list(extrainfo.keys()))
     return qs_aa, atypes_aa, atms_aa, bnds_aa, repsatm_aa
 
-def defaultparams(
-    aa, datapath="/home/bbh9955/programs/Rosetta/residue_types", extrapath=""
-):
+def defaultparams( aa ):
     """
     Get params path of aa
 
@@ -135,18 +77,17 @@ def defaultparams(
         path of params file
     """
     # First search through Rosetta database
+    datapath = os.path.dirname(os.path.abspath(__file__))+'/params/'
+    
     if aa in AMINOACID:
-        p = "%s/l-caa/%s.params" % (datapath, aa)
+        p = "%s/%s.params" % (datapath, aa)
         return p
 
     p = "%s/%s.params" % (extrapath, aa)
     if not os.path.exists(p):
-        p = "%s/LG.params" % (extrapath)
-    if not os.path.exists(p):
         sys.exit(
             "Failed to found relevant params file for aa:"
             + aa
-            + ",  -- check if LG.params exits"
         )
     return p
 
@@ -238,7 +179,7 @@ def read_params(
     return atms, qs, atypes, bnds, repsatm, nchi
 
 def read_pdb(
-    pdb: Path,
+    pdb,
     read_ligand: bool = False,
     aas_allowed: list = [],
     aas_disallowed: list = [],
@@ -296,23 +237,106 @@ def read_pdb(
 
     return resnames, reschains, xyz, atms
 
-def find_gentype2num(at):
-    if at in gentype2num:
-        return gentype2num[at]
+def read_mol2(mol2,drop_H=False):
+    read_cont = 0
+
+    qs = []
+    atypes = []
+    bonds = []
+    atms = []
+    
+    for l in open(mol2):
+        if l.startswith('@<TRIPOS>ATOM'):
+            read_cont = 1
+            continue
+        if l.startswith('@<TRIPOS>BOND'):
+            read_cont = 2
+            continue
+        if l.startswith('@<TRIPOS>SUBSTRUCTURE'):
+            break
+        if l.startswith('@<TRIPOS>UNITY_ATOM_ATTR'):
+            read_cont = 0
+            continue
+
+        words = l[:-1].split()
+        if read_cont == 1:
+
+            idx = words[0]
+            atm = words[1]
+            atype = find_atype(words[5])
+            
+            atms.append(atm)
+            atypes.append(atype)
+            qs.append(float(words[-1]))
+                
+        elif read_cont == 2:
+            bonds.append([int(words[1])-1,int(words[2])-1]) #make 0-index
+            #bondtypes = {'0':0,'1':1,'2':2,'3':3,'ar':3,'am':2, 'du':0, 'un':0} 
+            #borders.append(bondtypes[words[3]]) #unused
+
+    # drop hydrogens
+    if drop_H:
+        nonHid = [i for i,a in enumerate(atms) if a[0] != 'H']
+    else:
+        nonHid = [i for i,a in enumerate(atms)]
+
+
+    bonds = [[nonHid.index(i),nonHid.index(j)] for i,j in bonds if i in nonHid and j in nonHid]
+
+    feats = {}
+    feats['qs'] = {atm:qs[i] for i,atm in enumerate(atms) if i in nonHid}
+    feats['atypes'] = np.array(atypes)[nonHid]
+    feats['atms'] = np.array(atms)[nonHid]
+    feats['bnds'] = [(feats['atms'][i], feats['atms'][j]) for i,j in bonds]
+    
+    return feats
+    
+
+def find_atype(at):
+    if at in atype2num:
+        return atype2num[at]
     else:
         return 0
 
+def atype2elem(atype):
+    if atype == 0:
+        return "X"
+    elif atype <= 6:
+        return "C"
+    elif atype <= 14:
+        return "N"
+    elif atype <= 18:
+        return "O"
+    elif atype <= 22:
+        return "S"
+    elif atype <= 24:
+        return "H"
+    elif atype == 25:
+        return "P"
+    elif atype == 26:
+        return "I"
+    elif atype == 27:
+        return "F"
+    elif atype == 28:
+        return "Cl"
+    elif atype == 29:
+        return "Br"
+    elif atype <= 40:
+        return "M"
+    else:
+        return 0
+    
 def findAAindex(aa):
     if aa in ALL_AAS:
         return ALL_AAS.index(aa)
     else:
-        return 0  # UNK
+        return -1  # UNK
 
 def sasa_from_xyz(xyz, elems, probe_radius=1.4, n_samples=50):
     atomic_radii = {"C":  2.0,"N": 1.5,"O": 1.4,"S": 1.85,"H": 0.0, #ignore hydrogen for consistency
                     "F": 1.47,"Cl":1.75,"Br":1.85,"I": 2.0,'P': 1.8,
                     "M": 2.3, #Mg or Mn
-                    "Z": 2.3  #Zn
+                    "X": 0,
     }
     areas = []
     normareas = []
@@ -364,110 +388,3 @@ def sasa_from_xyz(xyz, elems, probe_radius=1.4, n_samples=50):
     occls = (occls-6.0)/3.0 #rerange 3.0~9.0 -> -1.0~1.0
     return areas, np.array(normareas), occls
 
-def dihedral(A, B, C, D):
-    AB = B - A
-    AC = C - A
-    BC = C - B
-    BD = D - B
-    v1 = np.cross(AB, AC) #np.cross : 벡터의 외적
-    v2 = np.cross(BC, BD)
-    v1v2 = np.dot(v1, v2) #np.dot : 벡터 점의 곱
-    len_v1 = np.sqrt(np.sum(v1*v1)) #np.sqrt : 제곱근, np.sum : 합
-    len_v2 = np.sqrt(np.sum(v2*v2))
-    radi = math.acos(v1v2 / (len_v1*len_v2)) #math.acos : radian구하기
-    x = math.degrees(radi) #math.degrees : 라디안을 각도로 변환
-    k = np.dot(np.cross(v1,v2), BC)
-    sign = 1
-    if k < 0:
-        sign = -1
-    return (sign*x)
-
-def phi_cal_angle(xyz, num, num_p): #좌표찾고 phi 계산
-    if 'C' in xyz[num_p] and 'N' in xyz[num] and 'CA' in xyz[num] and 'C' in xyz[num]:
-        phi = dihedral(xyz[num_p]['C'], xyz[num]['N'], xyz[num]['CA'], xyz[num]['C'])
-    else:
-        phi = None
-    return phi
-
-def psi_cal_angle(xyz, num, num_n): #각각의 좌표 찾아서 psi계산
-    if 'N' in xyz[num] and 'CA' in xyz[num] and 'C' in xyz[num] and 'N' in xyz[num_n]:
-        psi = dihedral(xyz[num]['N'], xyz[num]['CA'], xyz[num]['C'], xyz[num_n]['N'])
-    else:
-        psi = None
-    return psi
-
-def cal_len(A, B): #길이 계산
-    P = A - B
-    length = np.sqrt(np.sum(P*P))
-    return length
-
-def correct_H(ss_dict,Hbonds,phi_dict,psi_dict):
-    for a,b in Hbonds:
-        if b-a != 4: continue
-        for i in range(a,b+1):
-            if i not in phi_dict and i not in psi_dict: continue
-            
-            if ((i not in phi_dict) and (-90<psi_dict[i]<30)):
-                ss_dict[i] = "H"
-            elif ((i not in psi_dict) and (-150<phi_dict[i]<-30)):
-                ss_dict[i] = "H"
-            elif ((-150<=phi_dict[i]<=-30) and (-90<=psi_dict[i]<=30)):
-                ss_dict[i] = "H"
-
-    return ss_dict
-
-def correct_E(ss_dict, Hbonds, phi, psi):
-    for x in ss_dict:
-        if ss_dict[x] == 'H': continue
-        if phi[x] > -20 or psi[x] < 45: ss_dict[x] = "C"
-
-    for i,j in Hbonds:
-        if ss_dict[i] == 'H' or ss_dict[j] == 'H': continue
-        if (i-2, j-2) in Hbonds:
-            for x in range(i-2,i+1):
-                if x in ss_dict: ss_dict[x] = "E"
-                
-        elif (i+2, j-2) in Hbonds:
-            for x in range(i,i+3):
-                if x in ss_dict: ss_dict[x] = "E"
-    
-    for j,i in Hbonds:
-        if ss_dict[i] == 'H' or ss_dict[j] == 'H': continue
-        if (j-2, i-2) in Hbonds:
-            for x in range(i-2,i+1):
-                if x in ss_dict: ss_dict[x] = "E"
-                
-        elif (j+2, i-2) in Hbonds:
-            for x in range(i-2,i+1):
-                if x in ss_dict: ss_dict[x] = "E"
-                    
-    return ss_dict
-
-def get_chain_SS3(xyz, reslist):
-    # neutral values
-    phi_dict = {res:120.0 for res in reslist}
-    psi_dict = {res:-120.0 for res in reslist}
-    Hbonds = []
-
-    for i,res in enumerate(reslist):
-        if i > 0 and res-1 in reslist:
-            phi_dict[res] = phi_cal_angle(xyz, i, reslist.index(res-1))
-            
-        if i < len(reslist)-1 and res+1 in reslist:
-            psi_dict[res] = psi_cal_angle(xyz, i, reslist.index(res+1))
-
-    xyz_N = np.array([x['N'] for x in xyz])[None,:,:]
-    xyz_O = np.array([x['O'] for x in xyz])[:,None,:]
-    d = xyz_N - xyz_O
-    Hbonds = np.where(np.sqrt(np.einsum('ijk,ijk->ij',d,d)) < 3.5) # N->O
-    Hbonds = [(reslist[i],reslist[j]) for i,j in zip(Hbonds[0],Hbonds[1]) if abs(i-j) > 2]
- 
-    ss_dict = {res:'C' for res in reslist} #default
-    ss_dict = correct_H(ss_dict,Hbonds,phi_dict,psi_dict)
-    ss_dict = correct_E(ss_dict,Hbonds,phi_dict,psi_dict)
-
-    SS3 = [ss_dict[res] for res in reslist]
-    phi = [phi_dict[res] for res in reslist]
-    psi = [psi_dict[res] for res in reslist]
-
-    return SS3, phi, psi

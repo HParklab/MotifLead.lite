@@ -13,10 +13,12 @@ from typing import Tuple
 
 class DataSet(torch.utils.data.Dataset):
     def __init__(self,
-                 scaffold_groups, #
                  args,
-                 is_train
+                 inputs, #
+                 is_inference=False
     ):
+        self.mode = args.mode #pair or single
+        
         self.edgek = args.edgek
         self.randomize = args.randomize
         self.ball_radius = args.ball_radius
@@ -24,55 +26,87 @@ class DataSet(torch.utils.data.Dataset):
         
         self.verbose = args.verbose
         self.debug = args.debug
-        self.is_train = is_train
         
-        self.read_atomic_params()
-        self.vnode_at_lig = (args.ligand_args['mode'] == 'vnode')
-        self.ligand_edge = args.ligand_args['edge'] #bond or topk
-        self.ligemb_type = args.ligand_args['emb']
-
         t0 = time.time()
         ## preload pairs
         self.ligemb = {}
-        self.inputs = scaffold_groups
+        self.inputs = inputs
 
+        if not is_inference:
+            self.labels, self.grps = self.read_label(args.label_f)
+            print(f'load {len(self.labels)} labels for {len(self.grps)} groups')
+            
     def __len__(self):
         return len(self.inputs)
 
     def __getitem__(self, index):
         grp = self.inputs[index]
 
+        if self.mode == 'single':
+            fname_npz = os.path.join(self.datadir, grp+'.feat.npz')
+            
+            data = np.load(fname_npz, allow_pickle=True)
+            Glig, ligmask = self.make_complex_graph( data, topk=self.edgek )
+            info = { 'grp': grp, 'ligname': [grp] }
+            info['label'] = (self.labels[grp],0.0)
+            info['ligmask'] = (ligmask, [])
 
-        fname_npz = os.path.join(self.datadir, grp)
-        data = np.load(fname_npz, allow_pickle=True)
-
-        ligids = self.sample_ligands(data)
-
-        Glig1 = self.make_complex_graph( data, ligids[0] )
-        Glig2 = self.make_complex_graph( data, ligids[1] )
-
-        info = { 'grp':grp, 'ligid':ligids }
-        info['label'] = data['dG'][ligids[0]] - data['dG'][ligids[1]]
+            return Glig, dgl.graph(([],[])), info
         
-        return Glig1, Glig2, info
+        elif self.mode == 'pair':
+            ligids, lignames = self.sample_ligands(grp)
+            
+            fname_npz1 = os.path.join(self.datadir, lignames[0]+'.feat.npz')
+            fname_npz2 = os.path.join(self.datadir, lignames[1]+'.feat.npz')
+            if not os.path.exists(fname_npz1) or not os.path.exists(fname_npz2):
+                print("no ", fname_npz1, "or", fname_npz2)
+                return None
+            
+            data1 = np.load(fname_npz1, allow_pickle=True)
+            data2 = np.load(fname_npz2, allow_pickle=True)
+
+            Glig1,ligmask1 = self.make_complex_graph( data1, topk=self.edgek ) 
+            Glig2,ligmask2 = self.make_complex_graph( data2, topk=self.edgek )
+
+            info = { 'grp': grp, 'ligname':lignames }
+            info['label'] = (self.labels[lignames[0]], self.labels[lignames[1]])
+            info['ligmask'] = (ligmask1, ligmask2)
+
+            return Glig1, Glig2, info
     
     def _skip_getitem(self, info):
         if self.verbose:
             print("SKIP:", info)
         info['valid'] = False
         return None
+
+    def read_label(self, f):
+        labels = {}
+        grps = {}
+        for l in open(f):
+            words = l[:-1].split()
+            ligname = words[0]
+            dG = float(words[1])
+            labels[ligname] = dG
+            if len(words) > 2:
+                grp = words[2]
+                if grp not in grps: grps[grp] = []
+                grps[grp].append(ligname)
+        return labels, grps
     
-    def sample_ligand( self, data ):
+    def sample_ligands( self, grp ):
         # ensure min-max diff is big enough
-        dGs = data['dG']
+        ligs = np.array(self.grps[grp])
+        dGs = np.array([self.labels[lig] for lig in ligs])
         diffs = np.abs(dGs[None,:] - dGs[:,None])
-        diffs = np.exp(-diffs/diffs.max())-0.999 #0.001 for identical
+        diffs = np.exp(-diffs/(diffs.max()+0.001))+0.001 #0.001 for identical
 
-        idxs = [idx for idx,P in np.denumerate(diffs)]
-        Ps = np.array([P for idx,P in np.denumerate(diffs)])
-        Ps /= sum(P)
+        idxs = [idx for idx,P in np.ndenumerate(diffs)]
+        Ps = np.array([P+1.0e-6 for idx,P in np.ndenumerate(diffs)])
+        Ps /= sum(Ps)
 
-        return idxs[np.random.choice([i for _ in P], p=P)] # difference-weighted random index
+        idx_sel = idxs[np.random.choice(len(Ps), p=Ps)]
+        return idx_sel, (ligs[idx_sel[0]], ligs[idx_sel[1]]) # difference-weighted random index
 
     def adjust_xyz(self, G, origin):
         xyz = G.ndata['x'][:,:] - origin
@@ -82,19 +116,42 @@ class DataSet(torch.utils.data.Dataset):
         #    xyz = xyz + (2.0*randxyz-1.0)
         G.ndata['x'] = xyz
 
-    def make_complex_graph(self, data, idx, topk=8):
+    def make_complex_graph(self, data, topk=8):
         ## Node features
         # 0-30: aatype
-        # 31-50: SYBYL atom types
-        # 51: q
-        # 52: sasa
+        # 31-71: SYBYL atom types
+        # 72: q
+        # 73: sasa
         
-        obt = [data[key][idx] for key in ['aas','atypes','qs','sasa']]
-        obt = np.concatenate(obt,axis=1) #N x 52?
-        obt = np.concatenate([np.zeros((obt.shape[0],64)),obt],axis=1) #make empty slot at first 64 channels
+        t0 = time.time()
 
-        xyz = data['xyz'][idx]
+        '''
+        if self.ignore_hydrogen:
+            atmidx = np.intersect1d(np.where(data['atypes']!=23), np.where(data['atypes']!=24))
+            atmmap = {i:j for i,j in enumerate(atmidx)}
+        else:
+            atmidx = np.arange(len(data['atypes']))
+            atmmap = {i:i for i,_ in enumerate(atmidx)}
+        '''
             
+        obt = []
+        obt.append(np.eye(31)[data['aas']])
+        obt.append(np.eye(41)[data['atypes']])
+        obt.append(data['qs'][:,None])
+        obt.append(data['sasa'][:,None])
+                   
+        '''
+        for key in ['aas','atypes','qs','sasa']: # 31 + 41 + 1 + 1 = 74
+            print(key, data[key].shape, data[key][:10])
+            if len(data[key].shape) == 1: obt.append(data[key][:,None])
+            else: obt.append(data[key])
+        '''
+
+        obt = np.concatenate(obt,axis=1)
+
+        xyz = data['xyz']
+            
+        t1 = time.time()
         ## Redefine edge
         X = torch.tensor(xyz[None,]) #expand dimension
         dX = torch.unsqueeze(X,1) - torch.unsqueeze(X,2)
@@ -107,21 +164,25 @@ class DataSet(torch.utils.data.Dataset):
         u = torch.tensor(np.arange(E_idx.shape[1]))[:,None].repeat(1, E_idx.shape[2]).reshape(-1)
         v = E_idx[0,].reshape(-1)
 
+        t2 = time.time()
         # define chemical bond index
-        N = recxyz.shape[0]
+        N = xyz.shape[0]
         bnds_bin = torch.zeros((N,N)).float()
+        bonds = data['bnds']
+        
         a = data['bnds'][:,0]
         b = data['bnds'][:,1]
         bnds_bin[a,b] = 1.0
 
-        xyz = torch.tensor(data['xyz']).float()
+        xyz = torch.tensor(xyz).float()
         w = torch.sqrt(torch.sum((xyz[v] - xyz[u])**2, axis=-1)+1e-6)
         
+        t3 = time.time()
         # normalize
         w = 1.0/(1.0+torch.exp(-2.0*(w-0.5))) #normalized
         ebt = torch.zeros((u.shape[0],2)).float()
-        ebt[:,0] = bnds_bin[u,v] #chemical bonds
-        ebt[:,1] = w
+        ebt[:,0] = bnds_bin[u,v] # bool: chemical bonds
+        ebt[:,1] = w # normalized distance
 
         # Concatenate coord & centralize xyz to ca.
         G = dgl.graph((u,v))
@@ -130,7 +191,14 @@ class DataSet(torch.utils.data.Dataset):
         G.edata['rel_pos'] = xyz[v] - xyz[u]
         G.edata['0'] = ebt
 
-        return G
+        ligmask = torch.zeros(G.number_of_nodes())
+        ilig = torch.where(G.ndata['0'][:,0]==1)[0]
+        ligmask[ilig] = 1
+        t4 = time.time()
+
+        #print("time %8.5f %8.5f %8.5f %8.5f, num edge %d"%(t1-t0, t2-t1, t3-t2, t4-t3, G.number_of_edges()))
+
+        return G, ligmask
     
     def report_graph_with_aa(self, G, residx, resnames):
         out = open('tmp.pdb','w')
@@ -164,7 +232,8 @@ def collate(samples):
 
     bG1 = []
     bG2 = []
-    for i,s in enumerate(valid): 
+    #n1, n2 = [], []
+    for i,s in enumerate(valid):
         G1,G2,_info = s
         if i == 0:
             info = {key:[] for key in _info}
@@ -176,9 +245,33 @@ def collate(samples):
         if G2 == None: G2 = Gempty.clone()
         bG1.append(G1)
         bG2.append(G2)
+        #n1.append(G1.number_of_nodes())
+        #n2.append(G2.number_of_nodes())
 
     bG1 = dgl.batch(bG1)
     bG2 = dgl.batch(bG2)
+
+    # re-index
+    b = len(valid)
+    ligmask1 = torch.zeros(b,bG1.number_of_nodes())
+    ligmask2 = torch.zeros(b,bG2.number_of_nodes())
+
+    n1, n2 = 0,0
+    for i,(mask1,mask2) in enumerate(info['ligmask']):
+        ligmask1[i,n1:n1+len(mask1)] = mask1
+        if len(mask2) > 0: # for mode == "single"
+            ligmask2[i,n2:n2+len(mask2)] = mask2
+        n1 += len(mask1)
+        n2 += len(mask2)
+
+    info['ligmask'] = (ligmask1, ligmask2)
+
+    if 'label' in info:
+        dG = torch.zeros(b,2)
+        for i,(dG1, dG2) in enumerate(info['label']):
+            dG[i,0] = dG1
+            dG[i,1] = dG2
+        info['label'] = dG
     
     return bG1, bG2, info
     

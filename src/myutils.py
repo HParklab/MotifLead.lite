@@ -43,14 +43,6 @@ def find_bin(x, bins):
         if x < b: return i
     return len(bins)-1
 
-def bin_it(x, bin_min=0.0, bin_max=5.0, num_classes=20, onehot=False):
-    bin_size = (bin_max - bin_min)/num_classes
-    x_bin_index = torch.div(x - bin_min, bin_size, rounding_mode='floor').long()
-    if onehot:
-        return torch.nn.functional.one_hot(x_bin_index, num_classes=num_classes)
-    else:
-        return x_bin_index
-
 def findAAindex(aa):
     if aa in ALL_AAS:
         return ALL_AAS.index(aa)

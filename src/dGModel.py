@@ -9,23 +9,30 @@ class dGModel(nn.Module):
         args
     ):
         super().__init__()
-        self.dGpred = EGNNpredictor( num_channels=args.num_channels,
-                                     num_layers=args.num_layers,
-                                     input_dim=args.num_node_features,
-                                     num_edge_features=args.num_edge_features,
-                                     outdim=args.out_dim )
+        self.dGpred = EGNNpredictor( num_channels=args['num_channels'],
+                                     num_layers=args['num_layers'],
+                                     input_dim=args['num_node_features'],
+                                     num_edge_features=args['num_edge_features'],
+                                     out_dim=args['out_dim'])
         
-    def forward(self, G1, G2, do_dropout=True):
-        g1s = dgl.unbatch(G1)
-        g2s = dgl.unbatch(G2)
+    def forward(self, G1, b_ligmask, do_dropout=True):
+        h = self.dGpred(G1, G1.ndata['0']).squeeze(-1)
 
-        dG = torch.zeros(len(g1s),0).to(G1.device())
+        # b_ligmask: b x N; h: N x outdim; dGs: b x outdim
+        dGs = torch.einsum("bi,i->b", b_ligmask, h)
+        #dGs = dGs/b_ligmask.sum(axis=-1) # normalize by num ligand atoms
+
+        #print(dGs.shape, h.shape, b_ligmask.shape, b_ligmask.sum(axis=-1).shape)
+        '''
+        g1s = dgl.unbatch(G1)
+
+        dG = torch.zeros(len(g1s)).to(G1.device())
         
-        for i,(g1,g2) in enumerate(zip(g1s,g2s)):
-            dG[i,0] = self.dGpred( g1, do_dropout=do_dropout )
-            dG[i,1] = self.dGpred( g2, do_dropout=do_dropout )
+        for i,g1 in enumerate(g1):
+            dG[i] = self.dGpred( g1, do_dropout=do_dropout )
+        '''
             
-        return dG
+        return dGs
 
 class EGNNpredictor(nn.Module):
     def __init__(self,
@@ -46,7 +53,7 @@ class EGNNpredictor(nn.Module):
             n_layers=num_layers,
             in_edge_nf=num_edge_features)
 
-        self.out_layer = nn.Linear(num_channels, outdim )
+        self.out_layer = nn.Linear(num_channels, out_dim )
 
     def forward(self, G, h):
         h, _ = self.egnn(h, G.ndata['x'].squeeze(1), G.edges(), G.edata["0"].float())
