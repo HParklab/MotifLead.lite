@@ -31,6 +31,7 @@ class DataSet(torch.utils.data.Dataset):
         ## preload pairs
         self.ligemb = {}
         self.inputs = inputs
+        self.inference = is_inference
 
         if not is_inference:
             self.labels, self.grps = self.read_label(args.label_f)
@@ -48,7 +49,8 @@ class DataSet(torch.utils.data.Dataset):
             data = np.load(fname_npz, allow_pickle=True)
             Glig, ligmask = self.make_complex_graph( data, topk=self.edgek )
             info = { 'grp': grp, 'ligname': [grp] }
-            info['label'] = (self.labels[grp],0.0)
+            if not self.inference:
+                info['label'] = (self.labels[grp],0.0)
             info['ligmask'] = (ligmask, [])
 
             return Glig, dgl.graph(([],[])), info
@@ -69,7 +71,8 @@ class DataSet(torch.utils.data.Dataset):
             Glig2,ligmask2 = self.make_complex_graph( data2, topk=self.edgek )
 
             info = { 'grp': grp, 'ligname':lignames }
-            info['label'] = (self.labels[lignames[0]], self.labels[lignames[1]])
+            if not self.inference:
+                info['label'] = (self.labels[lignames[0]], self.labels[lignames[1]])
             info['ligmask'] = (ligmask1, ligmask2)
 
             return Glig1, Glig2, info
