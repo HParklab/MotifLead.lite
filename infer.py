@@ -17,8 +17,9 @@ import warnings
 warnings.filterwarnings("ignore", message="sourceTensor.clone")
 torch.set_printoptions(sci_mode=False,precision=4)
 
-ddp = ("CUDA_VISIBLE_DEVICES" in os.environ)# and (len(os.environ["CUDA_VISIBLE_DEVICES"]) > 1)
-device = torch.device("cuda:0" if (torch.cuda.is_available()) else "cpu")
+#ddp = ("CUDA_VISIBLE_DEVICES" in os.environ)# and (len(os.environ["CUDA_VISIBLE_DEVICES"]) > 1)
+#device = torch.device("cuda:0" if (torch.cuda.is_available()) else "cpu")
+device = torch.device("cpu")
 
 def parse_args(args_in):
     args_in.mode = 'single'
@@ -49,7 +50,7 @@ def load_params():
     model = dGModel(args.model_args)
     model.to(device)
 
-    if not os.path.exists("models/%s/model.pkl"%args.modelname):
+    if not os.path.exists("models/%s/infer.pkl"%args.modelname):
         sys.exit(f"no model file at models/{args.modelname}/infer.pkl")
         
     checkpoint = torch.load("models/"+args.modelname+"/infer.pkl",map_location=device)
@@ -76,7 +77,7 @@ def infer(args, npzs):
         'collate_fn':collate,
         'batch_size':args.nbatch}
 
-    data_set = DataSet( args, npzs ) 
+    data_set = DataSet( args, npzs, is_inference=True ) 
     loader = torch.utils.data.DataLoader(data_set, **params_loader)
 
     e_count = 0
