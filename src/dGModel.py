@@ -13,10 +13,11 @@ class dGModel(nn.Module):
                                      num_layers=args['num_layers'],
                                      input_dim=args['num_node_features'],
                                      num_edge_features=args['num_edge_features'],
-                                     out_dim=args['out_dim'])
+                                     out_dim=args['out_dim'],
+                                     dropout_rate = args['dropout_rate'])
         
     def forward(self, G1, b_ligmask, do_dropout=True):
-        h = self.dGpred(G1, G1.ndata['0']).squeeze(-1)
+        h = self.dGpred(G1, G1.ndata['0'], do_dropout).squeeze(-1)
 
         # b_ligmask: b x N; h: N x outdim; dGs: b x outdim
         dGs = torch.einsum("bi,i->b", b_ligmask, h)
@@ -41,6 +42,7 @@ class EGNNpredictor(nn.Module):
                  input_dim,
                  num_edge_features,
                  out_dim,
+                 dropout_rate
                  ):
         super().__init__()
 
@@ -53,10 +55,20 @@ class EGNNpredictor(nn.Module):
             n_layers=num_layers,
             in_edge_nf=num_edge_features)
 
+        self.dropout = nn.Dropout(dropout_rate)
         self.out_layer = nn.Linear(num_channels, out_dim )
 
-    def forward(self, G, h):
+    def forward(self, G, h, do_dropout):
+        if do_dropout:
+            h = self.dropout(h)
+
+        #print(h[0,:])
+        #print(G.ndata['x'])
         h, _ = self.egnn(h, G.ndata['x'].squeeze(1), G.edges(), G.edata["0"].float())
+        
+        
+        if do_dropout:
+            h = self.dropout(h)
         h = self.out_layer(h)
         
         return h

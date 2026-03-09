@@ -9,12 +9,7 @@ import glob
 from src.dGModel import dGModel
 from src.dataset_ddG import collate, DataSet
 from src.logger import *
-from src.args import args_base
-
-## DDP related modules
-#import torch.multiprocessing as mp
-#import torch.distributed as dist
-#from torch.nn.parallel import DistributedDataParallel as DDP
+from src.args import args_base0 as args_base
 
 from optparse import OptionParser
 
@@ -22,9 +17,8 @@ import warnings
 warnings.filterwarnings("ignore", message="sourceTensor.clone")
 torch.set_printoptions(sci_mode=False,precision=4)
 
-ddp = ("CUDA_VISIBLE_DEVICES" in os.environ) and (len(os.environ["CUDA_VISIBLE_DEVICES"]) > 1)
-#device = torch.device("cuda:0" if (torch.cuda.is_available()) else "cpu")
-device = torch.device("cpu")
+ddp = ("CUDA_VISIBLE_DEVICES" in os.environ)# and (len(os.environ["CUDA_VISIBLE_DEVICES"]) > 1)
+device = torch.device("cuda:0" if (torch.cuda.is_available()) else "cpu")
 
 def parse_args(args_in):
     args_in.mode = 'single'
@@ -32,10 +26,13 @@ def parse_args(args_in):
     parser = OptionParser(usage="python infer.py [-p parent-path-to-npzfiles]")
     parser.add_option("-p",
                       type="string")
+    parser.add_option("-o","--output",
+                      default="dG.npz",
+                      type="string")
 
     
     args_add, args = parser.parse_args()
-    if "p" not in args_add.__dict__:
+    if args_add.__dict__['p'] == None:
         parser.error("-p not found")
 
     npzs = glob.glob(args_add.p+"/*feat.npz")
@@ -44,6 +41,7 @@ def parse_args(args_in):
 
     # override default
     args_out.datapath = os.path.abspath(args_add.p)
+    args_out.output = args_add.output
     
     return args_out, [l.split('/')[-1].replace('.feat.npz','') for l in npzs]
 
@@ -55,14 +53,21 @@ def load_params():
         sys.exit(f"no model file at models/{args.modelname}/infer.pkl")
         
     checkpoint = torch.load("models/"+args.modelname+"/infer.pkl",map_location=device)
+
+    trained_dict = {}
+    for key in checkpoint["model_state_dict"]:
+        key2 = key
+        if key.startswith('module.'): key2 = key[7:]
+        wts = checkpoint["model_state_dict"][key]
+        trained_dict[key2] = wts
         
-    model.load_state_dict(model.state_dict(), strict=False)
-    #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    model.load_state_dict(trained_dict, strict=True)
         
     return model
 
 def infer(args, npzs):
     model = load_params()
+    model.eval()
 
     params_loader={
         'shuffle': False,
@@ -76,8 +81,10 @@ def infer(args, npzs):
 
     e_count = 0
     tags, values = [],[]
+
     for i, inputs in enumerate(loader):
         if inputs == None: continue
+        if i >= 1000: break
 
         G1, _, info = inputs
         if G1 == None:
@@ -95,7 +102,10 @@ def infer(args, npzs):
         
             print(f"{ligs[0]:20s} {preds[i]:8.3f}")
 
-    #np.save(z)
+    print(f"saving results for {len(tags)} entries at {args.output}")
+    np.savez(args.output,
+             tags=tags,
+             dGs=values)
 
 ## main
 if __name__=="__main__":

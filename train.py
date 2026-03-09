@@ -8,7 +8,7 @@ import dgl
 from src.dGModel import dGModel
 from src.dataset_ddG import collate, DataSet
 from src.logger import *
-from src.args import args_base
+from src.args import args_base as args
 
 ## DDP related modules
 import torch.multiprocessing as mp

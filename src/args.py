@@ -2,7 +2,7 @@ import copy
 import numpy as np
 
 class Argument:
-    def __init__(self, modelname, dropout_rate=0.3):
+    def __init__(self, modelname):
         self.silent = False
         self.mode = 'pair' # loss calc option; pair-ddG or single-dG
         
@@ -14,7 +14,7 @@ class Argument:
         self.dataf_valid = 'data/valid.txt'
         self.label_f = 'data/dGlabels.txt'
         
-        self.LR = 1.0e-4
+        self.LR = 1.0e-5
         self.debug = False
         
         self.ball_radius = 4.0
@@ -30,7 +30,7 @@ class Argument:
         self.gradient_checkpoint = True
 
 
-        self.w = {'dG':0.5, 'ddG':1.0, 'reg':1.0e-8}
+        self.w = {'dG':0.3, 'ddG':1.0, 'reg':1.0e-8}
         
         self.model_args = {'num_node_features':74,
                            'num_layers': 4,
@@ -41,4 +41,5 @@ class Argument:
         
         self.verbose = True
 
-args_base = Argument( "base" )
+args_base0 = Argument( "base" )
+args_base = Argument( "base2" )
