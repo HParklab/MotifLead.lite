@@ -1,3 +1,8 @@
+# first make a conda environment
+
+> conda env create -f environment.yml 
+> source active mll
+
 # step0. prepare
 - a PDB file containing receptor+ligand structure
 - a mol2 file containing ligand information with atom names identical to those appear in PDB
