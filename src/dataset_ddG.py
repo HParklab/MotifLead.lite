@@ -56,7 +56,7 @@ class DataSet(torch.utils.data.Dataset):
             return Glig, dgl.graph(([],[])), info
         
         elif self.mode == 'pair':
-            ligids, lignames = self.sample_ligands(grp)
+            ligids, lignames = self.sample_ligands(grp, option.sampling_mode)
             
             fname_npz1 = os.path.join(self.datadir, lignames[0]+'.feat.npz')
             fname_npz2 = os.path.join(self.datadir, lignames[1]+'.feat.npz')
@@ -97,18 +97,22 @@ class DataSet(torch.utils.data.Dataset):
                 grps[grp].append(ligname)
         return labels, grps
     
-    def sample_ligands( self, grp ):
+    def sample_ligands( self, grp, sampling_mode ):
         # ensure min-max diff is big enough
         ligs = np.array(self.grps[grp])
         dGs = np.array([self.labels[lig] for lig in ligs])
         diffs = np.abs(dGs[None,:] - dGs[:,None])
-        diffs = np.exp(-diffs/(diffs.max()+0.001))+0.001 #0.001 for identical
+        if sampling_mode == 'weighted':
+            diffs = np.exp(-diffs/(diffs.max()+0.001))+0.001 #0.001 for identical
 
-        idxs = [idx for idx,P in np.ndenumerate(diffs)]
-        Ps = np.array([P+1.0e-6 for idx,P in np.ndenumerate(diffs)])
-        Ps /= sum(Ps)
+            idxs = [idx for idx,P in np.ndenumerate(diffs)]
+            Ps = np.array([P+1.0e-6 for idx,P in np.ndenumerate(diffs)])
+            Ps /= sum(Ps)
 
-        idx_sel = idxs[np.random.choice(len(Ps), p=Ps)]
+            idx_sel = idxs[np.random.choice(len(Ps), p=Ps)]
+        else:
+            idx_sel = np.where(diffs)[0]
+
         return idx_sel, (ligs[idx_sel[0]], ligs[idx_sel[1]]) # difference-weighted random index
 
     def adjust_xyz(self, G, origin):

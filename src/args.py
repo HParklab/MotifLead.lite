@@ -8,13 +8,13 @@ class Argument:
         
         self.modelname = modelname
         self.nbatch = 20
-        self.max_epoch = 100
+        self.max_epoch = 200
         self.datapath = '/ml/MotifLead/current/ddG/'
         self.dataf_train = 'data/train.txt'
         self.dataf_valid = 'data/valid.txt'
         self.label_f = 'data/dGlabels.txt'
         
-        self.LR = 1.0e-5
+        self.LR = 1.0e-4
         self.debug = False
         
         self.ball_radius = 4.0
@@ -28,7 +28,7 @@ class Argument:
         #self.dGw = np.array([0.4, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.5, 2.0, 4.0, 6.0, 10.0, 10.0, 10.0])
         
         self.gradient_checkpoint = True
-
+        self.sampling_mode = 'weighted'
 
         self.w = {'dG':0.3, 'ddG':1.0, 'reg':1.0e-8}
         
@@ -41,5 +41,4 @@ class Argument:
         
         self.verbose = True
 
-args_base0 = Argument( "base" )
-args_base = Argument( "base2" )
+args_base = Argument( "base" )
